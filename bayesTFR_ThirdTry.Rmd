@@ -1,0 +1,313 @@
+---
+title: "bayesTFR - Third Try"
+author: "Giulia Gonnella"
+date: "5/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Introduction
+The scope of this script is to investigate the use of R package *bayesTFR*, which uses a Bayesian Hierarchical model to produce probabilistic projections of annual TFR accounting for the uncertainty in the past values.
+
+## 2. Input
+### 2.1 Packages
+Upload all the useful R packages and related ones. 
+```{r, results = 'hide', message = FALSE, warning = FALSE}
+.packages = c("countrycode", "cwhmisc", "data.table", "data.table", "plyr", 
+              "dplyr", "devtools", "bayesTFR", "ggplot2", "googleVis", "httr", "knitr", 
+              "kableExtra", "lubridate", "memisc", "openxlsx", "readxl", "rje",  
+              "rlang", "RODBC", "rworldmap", "signal", "stringdist", "stringi", 
+              "stringr", "tm", "vctrs", "tidyverse", "xlsx", "XML")
+
+
+.inst <- .packages %in% installed.packages()
+
+if(length(.packages[!.inst]) > 0) 
+  install.packages(.packages[!.inst],dependencies=TRUE)
+
+lapply(.packages, require, character.only=TRUE)
+
+getwd()
+```
+
+
+## 3. 5-year version
+## 3.1 Output directory
+```{r}
+simulation.dir <- file.path(getwd(), "New")
+```
+
+### 3.2 Phase II
+#### 3.2.1 Fitting the TFR projection model
+Run MCMC for simulating TFR for all countries (as they all are in Phase II - during the fertility transition), using a Bayesian hierarchical model. 
+```{r}
+m1 <- run.tfr.mcmc(nr.chains = 5,
+                   iter = 5000,
+                   output.dir = simulation.dir,
+                   replace.output = T)
+
+#Access the MCMC results
+m2 <- get.tfr.mcmc(sim.dir = simulation.dir)
+
+summary(m2)
+summary(m2, meta.only = T) 
+
+tfr.pardensity.plot(m2,
+                    par.names = c("alphat",
+                                  "Triangle4",
+                                  "delta",
+                                  "sigma0"),
+                    dev.ncol = 4,
+                    bw = 0.5)
+
+tfr.partraces.plot(mcmc.list = m2,
+                   par.names = "Triangle4",
+                   nr.points = 100)
+
+
+
+```
+
+#### 3.2.2 View estimation results
+```{r}
+#Country-independent parameters
+tfr.parameter.names()
+
+tfr.partraces.plot(m2,
+                   par.names = c("chi", "psi", 
+                                 "Triangle4", "const_sd"),
+                   dev.ncol = 2)
+
+tfr.partraces.plot(m2,
+                   par.names = c("delta", "delta4"),
+                   dev.ncol = 2)
+
+tfr.partraces.plot(m2,
+                   par.names = c("alpha", "alphat"),
+                   dev.ncol = 3)
+
+tfr.partraces.plot(m2,
+                   par.names = c("a_sd", "b_sd", 
+                                 "S_sd", "sigma0", 
+                                 "mean_eps_tau", "sd_eps_tau"),
+                   dev.ncol = 3)
+
+#Country-specific parameters
+summary(m2, country = "Thailand")
+
+tfr.parameter.names.cs()
+
+tfr.partraces.cs.plot(m2, 
+                      country = "Thailand")
+
+#Posterior density
+tfr.partraces.cs.plot(m2, 
+                      country = "Thailand")
+
+tfr.pardensity.cs.plot(m2, 
+                       country = "Thailand", 
+                       burnin = 30)
+
+tfr.pardensity.cs.plot(m2, 
+                       country = "Thailand", 
+                       burnin = 200, 
+                       par.names = "Triangle_c4")
+
+#Double logistic curve
+DLcurve.plot(m2, 
+             country = "Thailand", 
+             burnin=100, 
+             nr.curves=100)
+```
+
+#### 3.2.3 MCMC convergence diagnostic 
+```{r}
+diag1 <- tfr.diagnose(simulation.dir,
+                      thin = 10,
+                      burnin = 500)
+
+diag2 <- get.tfr.convergence(simulation.dir,
+                             thin = 10,
+                             burnin = 500)
+summary(diag2)
+```
+
+
+### 3.3 Phase III
+#### 3.3.1 Run Phase III MCMC
+```{r}
+install.packages("shinystan", dependencies=TRUE)
+library(shinystan)
+
+m_PhaseIII <- run.tfr3.mcmc(sim.dir = simulation.dir, 
+                            iter= 10000, 
+                            thin = 10,
+                            nr.chains=5,
+                            replace.output = T)
+
+m3 <- get.tfr3.mcmc(simulation.dir)
+
+summary(m3, meta.only = T)
+
+get.countries.table(m3)
+
+```
+
+#### 3.3.2 View estimation results
+```{r}
+#Country-independent parameters
+tfr3.parameter.names()
+
+tfr3.partraces.plot(m3,
+                   dev.ncol = 3)
+
+#Country-specific parameters
+Country = "Italy"
+
+summary(m3, 
+        country = Country)
+
+tfr3.parameter.names.cs()
+
+tfr3.partraces.cs.plot(m3, 
+                      country = Country)
+
+#Posterior density
+tfr3.pardensity.cs.plot(m3, 
+                       country = Country, 
+                       burnin = 2000)
+```
+
+#### 3.3.3 MCMC convergence diagnostic
+```{r}
+diag3 <- tfr3.diagnose(simulation.dir, 
+                       burnin = 10)
+
+diag3 <- get.tfr3.convergence(simulation.dir,
+                      thin = 10,
+                      burnin = 2000)
+```
+
+
+### 3.4 Projections
+#### 3.4.1 Generating projections
+Generate the TFR trajectories.
+```{r}
+pred1 <- tfr.predict(sim.dir = simulation.dir, 
+                     end.year = 2100,
+                     replace.output = T,
+                     burnin = 2000,
+                     nr.traj = 4000,
+                     use.tfr3 = T,
+                     burnin3 = 2000,
+                     verbose = T)
+
+pred1 <- get.tfr.prediction(sim.dir = simulation.dir)
+
+```
+
+#### 3.4.2 View projections results
+```{r}
+Country <- 840
+
+summary(pred1, 
+        country = Country)
+
+tfr.trajectories.table(pred1, 
+                       country = Country, 
+                       pi = c(80, 90))
+
+tfr.trajectories.plot(pred1, 
+                      country = Country, 
+                      nr.traj = 100)
+
+tfr.trajectories.plot(pred1, 
+                      country = Country, 
+                      typical.trajectory=TRUE)
+
+tfr.trajectories.plot(pred1, 
+                      country = Country, 
+                      nr.traj = 100,
+                      mark.estimation.points = TRUE)
+
+tfr.map(pred1)
+
+
+```
+
+
+## 4. Annual version
+### 4.1 Output directory
+```{r}
+simulation_annual.dir <- file.path(getwd(), "Annual")
+```
+
+### 4.2 Fitting the TFR projection model
+Run MCMC for simulating TFR for all countries (as they all are in Phase II - during the fertility transition), using a Bayesian hierarchical model. 
+```{r}
+m1_annual <- run.tfr.mcmc(nr.chains = 5,
+                          iter = 20000,
+                          output.dir = simulation_annual.dir,
+                          replace.output = T, 
+                          annual = T)
+
+#Access the MCMC results
+m2_annual <- get.tfr.mcmc(sim.dir = simulation_annual.dir)
+
+summary(m2_annual)
+summary(m2_annual, meta.only = T) 
+
+tfr.pardensity.plot(m2_annual,
+                    par.names = c("alphat",
+                                  "Triangle4",
+                                  "delta",
+                                  "sigma0"),
+                    dev.ncol = 4,
+                    bw = 0.5)
+```
+
+
+### 4.3 MCMC convergence diagnostic
+```{r}
+diag1_annual <- tfr.diagnose(simulation_annual.dir,
+                             thin = 10,
+                             burnin = 2000)
+
+diag2_annual <- get.tfr.convergence(simulation_annual.dir,
+                                    thin = 10,
+                                    burnin = 2000)
+
+summary(diag2_annual)
+```
+
+### 4.4 Run Phase III MCMC
+```{r}
+install.packages("shinystan", dependencies=TRUE)
+library(shinystan)
+
+m_PhaseIII_annual <- run.tfr3.mcmc(sim.dir = simulation_annual.dir, 
+                            iter= 100000,
+                            nr.chains=5,
+                            replace.output = T,
+                            annual = T)
+
+m3_annual <- get.tfr3.mcmc(simulation_annual.dir)
+
+summary(m3_annual)
+
+diag3_annual <- tfr3.diagnose(simulation_annual.dir, 
+                       burnin = 2000)
+
+diag3_annual <- get.tfr3.convergence(simulation_annual.dir,
+                      thin = 10,
+                      burnin = 2000)
+```
+
+
+
+
+
+

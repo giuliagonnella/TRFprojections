@@ -33,3 +33,13 @@ You can also embed plots, for example:
 
 Note that the `echo = FALSE` parameter was added to the code chunk to
 prevent printing of the R code that generated the plot.
+
+``` r
+x <- seq(5, 15, length=1000)
+
+y <- dnorm(x, mean=10, sd=1)
+
+plot(x, y, type="l", lwd=1)
+```
+
+![](TFR_files/figure-gfm/unnamed-chunk-1-1.png)<!-- -->

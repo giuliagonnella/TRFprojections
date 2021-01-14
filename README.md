@@ -1,2 +1,2 @@
 # TRFprojections
-First tray of using GitHub for the TFR projections
+First try of using GitHub for the TFR projections
